@@ -12,3 +12,12 @@ ExpenseML.zip
 # Local agent handoff instructions
 ANTIGRAVITY_AGENT_INSTRUCTIONS.txt
 ANTIGRAVITY_PROJECT_CONTEXT*.txt
+
+# Frontend
+node_modules/
+dist/
+*.local
+.env
+
+# Stitch
+.stitch/

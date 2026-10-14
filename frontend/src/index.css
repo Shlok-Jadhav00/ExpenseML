@@ -1,0 +1,99 @@
+@import "tailwindcss";
+
+@theme {
+  /* ── Emerald Tech Colour Palette ── */
+  --color-background: #0B0F17;
+  --color-surface: #121824;
+  --color-surface-secondary: #1B2436;
+  --color-action-primary: #10B981;
+  --color-accent-premium: #F59E0B;
+  --color-text-primary: #FFFFFF;
+  --color-text-secondary: #94A3B8;
+  --color-status-normal: #10B981;
+  --color-status-warning: #F59E0B;
+  --color-status-anomaly: #F43F5E;
+  --color-border-subtle: rgb(255 255 255 / 8%);
+  --color-focus-ring: #10B981;
+
+  /* ── Typography ── */
+  --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+
+  /* ── Border Radii ── */
+  --radius-card: 14px;
+  --radius-control: 8px;
+  --radius-badge: 999px;
+
+  /* ── Spacing ── */
+  --spacing-page: 1.5rem;
+
+  /* ── Elevation ── */
+  --shadow-card: 0 4px 20px rgb(0 0 0 / 25%);
+}
+
+/* ── Base resets & global styling ── */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  background-color: var(--color-background);
+  color: var(--color-text-primary);
+  line-height: 1.6;
+}
+
+/* ── Focus visible ring ── */
+*:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 2px;
+}
+
+/* ── Scrollbar styling ── */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-surface-secondary);
+  border-radius: var(--radius-badge);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-secondary);
+}
+
+/* ── Skeleton loading animation ── */
+@keyframes skeleton-pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 0.15; }
+}
+
+.animate-skeleton {
+  animation: skeleton-pulse 1.8s ease-in-out infinite;
+  background-color: var(--color-surface-secondary);
+  border-radius: var(--radius-control);
+}
+
+/* ── Reduced motion ── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

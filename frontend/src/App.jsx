@@ -2,12 +2,17 @@ import { useState } from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
 import Sidebar from "./components/layout/Sidebar";
 import TopBar from "./components/layout/TopBar";
+import ProtectedRoute from "./components/auth/ProtectedRoute";
+import GuestRoute from "./components/auth/GuestRoute";
 import Dashboard from "./pages/Dashboard";
 import AddTransaction from "./pages/AddTransaction";
 import TransactionHistory from "./pages/TransactionHistory";
 import MLInsights from "./pages/MLInsights";
+import Login from "./pages/Login";
+import Register from "./pages/Register";
+import Account from "./pages/Account";
 
-export default function App() {
+function AuthenticatedLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   return (
@@ -33,10 +38,45 @@ export default function App() {
             <Route path="/add" element={<AddTransaction />} />
             <Route path="/history" element={<TransactionHistory />} />
             <Route path="/insights" element={<MLInsights />} />
+            <Route path="/account" element={<Account />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </main>
       </div>
     </div>
+  );
+}
+
+export default function App() {
+  return (
+    <Routes>
+      {/* Guest routes — redirect to dashboard if already logged in */}
+      <Route
+        path="/login"
+        element={
+          <GuestRoute>
+            <Login />
+          </GuestRoute>
+        }
+      />
+      <Route
+        path="/register"
+        element={
+          <GuestRoute>
+            <Register />
+          </GuestRoute>
+        }
+      />
+
+      {/* Protected routes — redirect to login if not authenticated */}
+      <Route
+        path="/*"
+        element={
+          <ProtectedRoute>
+            <AuthenticatedLayout />
+          </ProtectedRoute>
+        }
+      />
+    </Routes>
   );
 }

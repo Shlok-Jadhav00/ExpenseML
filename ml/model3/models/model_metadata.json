@@ -1,0 +1,83 @@
+{
+  "model_name": "Linear Regression",
+  "is_baseline": false,
+  "created_at": "2026-10-15T02:21:25",
+  "target_definition": "Total expenses (INR) over the 7 calendar days after the forecast date; transfers and credit-card bill payments excluded.",
+  "feature_columns": [
+    "expense_lag_1",
+    "expense_lag_7",
+    "expense_lag_14",
+    "expense_lag_28",
+    "rolling_mean_7",
+    "rolling_mean_14",
+    "rolling_mean_28",
+    "rolling_std_7",
+    "rolling_std_28",
+    "recent_week_expense",
+    "previous_week_expense",
+    "week_over_week_change",
+    "trend_7_vs_28",
+    "user_avg_daily_expense_to_date",
+    "cat_Food_sum_7",
+    "cat_Food_sum_28",
+    "cat_Transport_sum_7",
+    "cat_Transport_sum_28",
+    "cat_Shopping_sum_7",
+    "cat_Shopping_sum_28",
+    "cat_Education_sum_7",
+    "cat_Education_sum_28",
+    "cat_Healthcare_sum_7",
+    "cat_Healthcare_sum_28",
+    "cat_Bills_sum_7",
+    "cat_Bills_sum_28",
+    "cat_Entertainment_sum_7",
+    "cat_Entertainment_sum_28",
+    "cat_Other_sum_7",
+    "cat_Other_sum_28",
+    "income_sum_28",
+    "days_since_income",
+    "day_of_week",
+    "day_of_month",
+    "days_remaining_in_month",
+    "window_has_month_start"
+  ],
+  "horizon_days": 7,
+  "min_history_days": 28,
+  "limited_history_days": 90,
+  "training_data_type": "synthetic",
+  "n_users_in_data": 38,
+  "n_training_examples": 9605,
+  "split": {
+    "train_last_forecast_date_cutoff": "2025-09-15",
+    "validation_last_forecast_date_cutoff": "2025-11-04",
+    "test_first_forecast_date": "2025-11-05",
+    "gap_days": 7
+  },
+  "validation_metrics": {
+    "MAE": 975.1433638902785,
+    "RMSE": 1339.3321746401114,
+    "R2": 0.18164834394793128
+  },
+  "test_metrics": {
+    "MAE": 930.5791071488374,
+    "RMSE": 1249.8570964583223,
+    "R2": 0.1459759756202521
+  },
+  "best_baseline_validation_MAE": 1041.296834625323,
+  "residual_quantiles_test": {
+    "q10": -1062.447883378407,
+    "q90": 1971.3232230746871
+  },
+  "library_versions": {
+    "python": "3.13.5",
+    "scikit_learn": "1.8.0",
+    "pandas": "2.2.3",
+    "numpy": "2.3.5"
+  },
+  "notes": [
+    "Predicts EXPENSES only; it does not predict account balance.",
+    "If training_data_type is 'synthetic', metrics do not describe real-world performance.",
+    "Not financial advice. Predictions are estimates from past spending.",
+    "No raw transactions are stored with this model."
+  ]
+}

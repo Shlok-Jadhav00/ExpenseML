@@ -15,6 +15,7 @@ const CATEGORIES = [
   "Bills",
   "Other",
 ];
+const INCOME_CATEGORIES = ["Allowance", "Salary", "Petty Cash", "Bonus", "Other"];
 const ACCOUNTS = ["Savings", "Cash", "UPI", "Credit Card"];
 const TYPES = ["expense", "income", "transfer"];
 
@@ -24,6 +25,7 @@ const INITIAL_FORM = {
   amount: "",
   category: "Food",
   account: "Savings",
+  to_account: "Cash",
   type: "expense",
   note: "",
 };
@@ -38,8 +40,25 @@ export default function AddTransaction() {
 
   function handleChange(e) {
     const { name, value } = e.target;
-    setForm((prev) => ({ ...prev, [name]: value }));
-    if (errors[name]) {
+    setForm((prev) => {
+      if (name === "type") {
+        return {
+          ...prev,
+          type: value,
+          category: value === "expense" ? "Food" : value === "income" ? "Allowance" : "",
+          to_account: value === "transfer" ? (prev.account === "Cash" ? "Savings" : "Cash") : "",
+        };
+      }
+      return { ...prev, [name]: value };
+    });
+    if (name === "type") {
+      setErrors((prev) => {
+        const next = { ...prev };
+        delete next.category;
+        delete next.to_account;
+        return next;
+      });
+    } else if (errors[name]) {
       setErrors((prev) => {
         const next = { ...prev };
         delete next[name];
@@ -55,8 +74,14 @@ export default function AddTransaction() {
     const amt = parseFloat(form.amount);
     if (!form.amount || isNaN(amt) || amt <= 0)
       errs.amount = "Amount must be greater than 0";
-    if (!form.category) errs.category = "Category is required";
+    if (form.type !== "transfer" && !form.category) errs.category = "Category is required";
     if (!form.account) errs.account = "Account is required";
+    if (form.type === "transfer") {
+      if (!form.to_account) errs.to_account = "To Account is required";
+      if (form.account && form.account === form.to_account) {
+        errs.to_account = "From and To accounts must be different";
+      }
+    }
     return errs;
   }
 
@@ -74,8 +99,9 @@ export default function AddTransaction() {
         date: form.date,
         name: form.name.trim(),
         amount: parseFloat(form.amount),
-        category: form.category,
+        ...(form.type !== "transfer" ? { category: form.category } : {}),
         account: form.account,
+        ...(form.type === "transfer" ? { to_account: form.to_account } : {}),
         type: form.type,
         note: form.note.trim() || null,
       };
@@ -83,7 +109,12 @@ export default function AddTransaction() {
       setResult(data);
       setToast({
         type: "success",
-        message: `Transaction saved — ${data.anomaly_status === "Anomaly" ? "flagged as anomaly" : "marked as normal"}`,
+        message:
+          form.type === "transfer"
+            ? "Transfer saved successfully"
+            : form.type === "income"
+              ? "Income saved successfully"
+              : `Transaction saved — ${data.anomaly_status === "Anomaly" ? "flagged as anomaly" : "marked as normal"}`,
       });
       /* Redirect after a brief pause so the user sees the result */
       setTimeout(() => navigate("/"), 2000);
@@ -165,30 +196,36 @@ export default function AddTransaction() {
 
           {/* Category + Account row */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label htmlFor="tx-category" className={labelBase}>
-                Category
-              </label>
-              <select
-                id="tx-category"
-                name="category"
-                value={form.category}
-                onChange={handleChange}
-                className={inputBase}
-              >
-                {CATEGORIES.map((c) => (
-                  <option key={c} value={c}>
-                    {c}
-                  </option>
-                ))}
-              </select>
-              {errors.category && (
-                <p className={errorText}>{errors.category}</p>
-              )}
-            </div>
+            {form.type !== "transfer" ? (
+              <div>
+                <label htmlFor="tx-category" className={labelBase}>
+                  Category
+                </label>
+                <select
+                  id="tx-category"
+                  name="category"
+                  value={form.category}
+                  onChange={handleChange}
+                  className={inputBase}
+                >
+                  {(form.type === "income" ? INCOME_CATEGORIES : CATEGORIES).map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
+                </select>
+                {errors.category && (
+                  <p className={errorText}>{errors.category}</p>
+                )}
+              </div>
+            ) : (
+              <div className="flex items-center text-xs text-text-secondary">
+                Transfers move money between accounts and are not analyzed as expenses.
+              </div>
+            )}
             <div>
               <label htmlFor="tx-account" className={labelBase}>
-                Account
+                {form.type === "transfer" ? "From Account" : "Account"}
               </label>
               <select
                 id="tx-account"
@@ -208,6 +245,30 @@ export default function AddTransaction() {
               )}
             </div>
           </div>
+
+          {form.type === "transfer" && (
+            <div>
+              <label htmlFor="tx-to-account" className={labelBase}>
+                To Account
+              </label>
+              <select
+                id="tx-to-account"
+                name="to_account"
+                value={form.to_account}
+                onChange={handleChange}
+                className={inputBase}
+              >
+                {ACCOUNTS.map((account) => (
+                  <option key={account} value={account}>
+                    {account}
+                  </option>
+                ))}
+              </select>
+              {errors.to_account && (
+                <p className={errorText}>{errors.to_account}</p>
+              )}
+            </div>
+          )}
 
           {/* Type — radio group */}
           <fieldset>

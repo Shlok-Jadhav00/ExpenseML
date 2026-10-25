@@ -1,11 +1,14 @@
-import { NavLink } from "react-router-dom";
+import { NavLink, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard,
   PlusCircle,
   List,
   BrainCircuit,
+  UserCircle,
+  LogOut,
   X,
 } from "lucide-react";
+import { useAuth } from "../../lib/AuthContext";
 
 const NAV_ITEMS = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard },
@@ -15,6 +18,15 @@ const NAV_ITEMS = [
 ];
 
 export default function Sidebar({ open, onClose }) {
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
+
+  async function handleLogout() {
+    onClose();
+    await logout();
+    navigate("/login", { replace: true });
+  }
+
   return (
     <aside
       className={`
@@ -67,10 +79,35 @@ export default function Sidebar({ open, onClose }) {
         ))}
       </nav>
 
+      {/* User section */}
+      <div className="px-3 py-3 border-t border-border-subtle space-y-1">
+        <NavLink
+          to="/account"
+          onClick={onClose}
+          className={({ isActive }) =>
+            `flex items-center gap-3 px-3 py-2.5 rounded-control text-sm font-medium transition-colors ${
+              isActive
+                ? "bg-action-primary/15 text-action-primary"
+                : "text-text-secondary hover:text-text-primary hover:bg-surface-secondary"
+            }`
+          }
+        >
+          <UserCircle size={18} strokeWidth={1.8} />
+          Account
+        </NavLink>
+        <button
+          onClick={handleLogout}
+          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-control text-sm font-medium text-text-secondary hover:text-status-anomaly hover:bg-status-anomaly/10 transition-colors"
+        >
+          <LogOut size={18} strokeWidth={1.8} />
+          Sign Out
+        </button>
+      </div>
+
       {/* Footer */}
-      <div className="px-5 py-4 border-t border-border-subtle">
-        <p className="text-xs text-text-secondary leading-relaxed">
-          Campus Capital Intelligence
+      <div className="px-5 py-3 border-t border-border-subtle">
+        <p className="text-xs text-text-secondary truncate" title={user?.email}>
+          {user?.email || "Campus Capital Intelligence"}
         </p>
       </div>
     </aside>

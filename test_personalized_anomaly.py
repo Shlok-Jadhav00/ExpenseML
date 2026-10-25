@@ -6,9 +6,10 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from backend.auth import get_current_user, require_csrf
 from backend.database import Base, get_db
 from backend.main import app, get_historical_expense_amounts
-from backend.models import Transaction
+from backend.models import Transaction, User
 from ml.anomaly_model import analyze_expense, analyze_expense_with_history
 
 
@@ -33,7 +34,10 @@ def isolated_client():
         finally:
             db.close()
 
+    test_user = User(id="test-user", email="test@example.com", password_hash="unused")
     app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_current_user] = lambda: test_user
+    app.dependency_overrides[require_csrf] = lambda: None
     with TestClient(app) as client:
         yield client, TestingSessionLocal
     app.dependency_overrides.clear()
@@ -51,6 +55,7 @@ def add_transactions(
 ):
     rows = [
         Transaction(
+            user_id="test-user",
             date=start_date + timedelta(days=index),
             name=f"{category} test",
             amount=amount,
@@ -141,7 +146,7 @@ def test_history_query_excludes_income_transfers_and_keeps_flagged_expenses(isol
             start_date=date(2026, 1, 12),
         )
 
-        amounts = get_historical_expense_amounts(db, "Food", date(2026, 1, 31))
+        amounts = get_historical_expense_amounts(db, "test-user", "Food", date(2026, 1, 31))
     finally:
         db.close()
 
@@ -219,16 +224,20 @@ def test_income_and_transfer_keep_not_applicable(isolated_client):
     client, session_factory = isolated_client
 
     for transaction_type in ("income", "transfer"):
+        payload = {
+            "date": "2026-01-01",
+            "name": f"Test {transaction_type}",
+            "amount": 10000,
+            "category": "Food",
+            "account": "Savings",
+            "type": transaction_type,
+        }
+        if transaction_type == "transfer":
+            payload["to_account"] = "Cash"
+            payload.pop("category")
         response = client.post(
             "/transactions",
-            json={
-                "date": "2026-01-01",
-                "name": f"Test {transaction_type}",
-                "amount": 10000,
-                "category": "Food",
-                "account": "Savings",
-                "type": transaction_type,
-            },
+            json=payload,
         )
         assert response.status_code == 201
         assert response.json()["anomaly_status"] == "Not Applicable"
@@ -236,7 +245,7 @@ def test_income_and_transfer_keep_not_applicable(isolated_client):
 
     db = session_factory()
     try:
-        assert get_historical_expense_amounts(db, "Food", date(2026, 1, 2)) == []
+            assert get_historical_expense_amounts(db, "test-user", "Food", date(2026, 1, 2)) == []
     finally:
         db.close()
 
@@ -259,12 +268,14 @@ def test_statistical_edge_cases_are_safe():
 
 def test_crud_and_forecast_endpoints_still_work(isolated_client):
     client, session_factory = isolated_client
+    forecast_date = date.today() + timedelta(days=1)
+    feature_date = forecast_date - timedelta(days=1)
     db = session_factory()
     try:
         add_transactions(
             db,
             [100 + index * 5 for index in range(29)],
-            start_date=date(2026, 9, 14),
+            start_date=feature_date - timedelta(days=28),
         )
     finally:
         db.close()
@@ -272,7 +283,7 @@ def test_crud_and_forecast_endpoints_still_work(isolated_client):
     create_response = client.post(
         "/transactions",
         json={
-            "date": "2026-10-13",
+                "date": forecast_date.isoformat(),
             "name": "CRUD Test",
             "amount": 200,
             "category": "Shopping",
@@ -285,13 +296,13 @@ def test_crud_and_forecast_endpoints_still_work(isolated_client):
 
     listed = client.get("/transactions")
     fetched = client.get(f"/transactions/{transaction_id}")
-    forecast = client.get("/forecast?date=2026-10-13")
+    forecast = client.get(f"/forecast?date={forecast_date.isoformat()}")
     deleted = client.delete(f"/transactions/{transaction_id}")
     missing = client.get(f"/transactions/{transaction_id}")
 
     assert listed.status_code == 200
     assert fetched.status_code == 200
     assert forecast.status_code == 200
-    assert forecast.json()["feature_date"] == "2026-10-12"
+    assert forecast.json()["feature_date"] == feature_date.isoformat()
     assert deleted.status_code == 204
     assert missing.status_code == 404

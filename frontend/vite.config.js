@@ -9,5 +9,31 @@ export default defineConfig({
   ],
   server: {
     port: 5173,
+    proxy: {
+      '/auth': {
+        target: 'http://127.0.0.1:8000',
+        changeOrigin: true,
+      },
+      '/transactions': {
+        target: 'http://127.0.0.1:8000',
+        changeOrigin: true,
+      },
+      '/analyze': {
+        target: 'http://127.0.0.1:8000',
+        changeOrigin: true,
+      },
+      '/forecast': {
+        target: 'http://127.0.0.1:8000',
+        changeOrigin: true,
+      },
+      '/cashflow-forecast': {
+        target: 'http://127.0.0.1:8000',
+        changeOrigin: true,
+      },
+      '/health': {
+        target: 'http://127.0.0.1:8000',
+        changeOrigin: true,
+      },
+    },
   },
 });

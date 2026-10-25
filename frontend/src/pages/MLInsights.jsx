@@ -6,7 +6,7 @@ import {
   AlertTriangle,
   Info,
 } from "lucide-react";
-import { analyzeExpense, getForecast } from "../lib/api";
+import { analyzeExpense, getCashflowForecast, getForecast } from "../lib/api";
 import { formatCurrency, formatDate } from "../lib/formatters";
 import AnomalyBadge from "../components/ui/AnomalyBadge";
 import LoadingSpinner from "../components/ui/LoadingSpinner";
@@ -37,9 +37,15 @@ export default function MLInsights() {
   const [forecastLoading, setForecastLoading] = useState(true);
   const [forecastError, setForecastError] = useState(null);
 
+  /* ── Seven-day cash-flow forecast state ── */
+  const [cashflowForecast, setCashflowForecast] = useState(null);
+  const [cashflowLoading, setCashflowLoading] = useState(true);
+  const [cashflowError, setCashflowError] = useState(null);
+
   /* Load forecast on mount */
   useEffect(() => {
     loadForecast();
+    loadCashflowForecast();
   }, []);
 
   async function loadForecast() {
@@ -52,6 +58,19 @@ export default function MLInsights() {
       setForecastError(err.message);
     } finally {
       setForecastLoading(false);
+    }
+  }
+
+  async function loadCashflowForecast() {
+    setCashflowLoading(true);
+    setCashflowError(null);
+    try {
+      const data = await getCashflowForecast();
+      setCashflowForecast(data);
+    } catch (err) {
+      setCashflowError(err.message);
+    } finally {
+      setCashflowLoading(false);
     }
   }
 
@@ -328,6 +347,164 @@ export default function MLInsights() {
           ) : null}
         </div>
       </div>
+
+      {/* ═══ Model 3 Cash-Flow Forecast ═══ */}
+      <section className="rounded-card bg-surface border border-border-subtle shadow-card p-5">
+        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-4">
+          <div className="flex items-center gap-2">
+            <TrendingUp size={18} className="text-action-primary" />
+            <div>
+              <h2 className="text-sm font-semibold text-text-primary">
+                Seven-Day Cash-Flow Forecast
+              </h2>
+              <p className="text-xs text-text-secondary mt-1">
+                Model 3 predicts total expenses for the seven days after the forecast date.
+              </p>
+            </div>
+          </div>
+          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-badge text-xs font-medium bg-status-warning/15 text-status-warning">
+            <AlertTriangle size={11} />
+            Experimental
+          </span>
+        </div>
+
+        <div className="flex items-start gap-2 p-3 rounded-control bg-background border border-border-subtle mb-4">
+          <Info size={14} className="text-text-secondary mt-0.5 shrink-0" />
+          <p className="text-xs text-text-secondary leading-relaxed">
+            This model was trained on synthetic data and has not been validated on real student expenses.
+          </p>
+        </div>
+
+        {cashflowLoading ? (
+          <LoadingSpinner variant="inline" />
+        ) : cashflowError ? (
+          <ErrorBanner message={cashflowError} onRetry={loadCashflowForecast} />
+        ) : cashflowForecast ? (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-text-secondary font-medium uppercase tracking-wider">
+                Status
+              </span>
+              <span className="px-2.5 py-0.5 rounded-badge bg-surface-secondary text-text-primary text-xs font-medium">
+                {cashflowForecast.status}
+              </span>
+            </div>
+
+            {(cashflowForecast.status === "ok" ||
+              cashflowForecast.status === "baseline_only") &&
+              cashflowForecast.predicted_expense_next_7_days != null && (
+                <div className="p-4 rounded-control bg-surface-secondary border border-border-subtle text-center">
+                  <p className="text-xs text-text-secondary mb-1">
+                    Predicted total expenses
+                  </p>
+                  <p className="text-3xl font-mono font-bold text-text-primary">
+                    {formatCurrency(cashflowForecast.predicted_expense_next_7_days)}
+                  </p>
+                </div>
+              )}
+
+            {(cashflowForecast.status === "no_data" ||
+              cashflowForecast.status === "insufficient_data") && (
+              <div className="p-4 rounded-control bg-surface-secondary border border-border-subtle flex items-start gap-3">
+                <Info size={18} className="text-status-warning mt-0.5 shrink-0" />
+                <div>
+                  <p className="text-sm font-medium text-text-primary">
+                    Forecast unavailable
+                  </p>
+                  <p className="text-xs text-text-secondary mt-1">
+                    {cashflowForecast.message || "More transaction history is needed."}
+                  </p>
+                </div>
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <div className="p-3 rounded-control bg-surface-secondary border border-border-subtle">
+                <p className="text-xs text-text-secondary">Forecast Date</p>
+                <p className="text-sm font-mono text-text-primary">
+                  {cashflowForecast.forecast_date ? formatDate(cashflowForecast.forecast_date) : "—"}
+                </p>
+              </div>
+              <div className="p-3 rounded-control bg-surface-secondary border border-border-subtle">
+                <p className="text-xs text-text-secondary">Prediction Period</p>
+                <p className="text-sm text-text-primary">
+                  {cashflowForecast.prediction_period || "—"}
+                </p>
+              </div>
+              <div className="p-3 rounded-control bg-surface-secondary border border-border-subtle">
+                <p className="text-xs text-text-secondary">History</p>
+                <p className="text-sm font-mono text-text-primary">
+                  {cashflowForecast.history_days} days
+                </p>
+              </div>
+              <div className="p-3 rounded-control bg-surface-secondary border border-border-subtle">
+                <p className="text-xs text-text-secondary">Model</p>
+                <p className="text-sm text-text-primary">
+                  {cashflowForecast.model_used || "—"}
+                </p>
+              </div>
+            </div>
+
+            {(cashflowForecast.typical_range ||
+              cashflowForecast.recent_week_expense != null ||
+              cashflowForecast.difference_from_recent_week_pct != null) && (
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                {cashflowForecast.typical_range && (
+                  <div>
+                    <p className="text-xs text-text-secondary">Typical Range</p>
+                    <p className="text-sm font-mono text-text-primary">
+                      {formatCurrency(cashflowForecast.typical_range[0])} – {formatCurrency(cashflowForecast.typical_range[1])}
+                    </p>
+                  </div>
+                )}
+                {cashflowForecast.recent_week_expense != null && (
+                  <div>
+                    <p className="text-xs text-text-secondary">Recent Week</p>
+                    <p className="text-sm font-mono text-text-primary">
+                      {formatCurrency(cashflowForecast.recent_week_expense)}
+                    </p>
+                  </div>
+                )}
+                {cashflowForecast.difference_from_recent_week_pct != null && (
+                  <div>
+                    <p className="text-xs text-text-secondary">Compared With Recent Week</p>
+                    <p className="text-sm font-mono text-text-primary">
+                      {cashflowForecast.difference_from_recent_week_pct.toFixed(1)}%
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {cashflowForecast.message && (
+              <p className="text-xs text-text-secondary italic">
+                {cashflowForecast.message}
+              </p>
+            )}
+
+            {cashflowForecast.observations?.length > 0 && (
+              <div>
+                <p className="text-xs font-medium text-text-secondary mb-1">Observations</p>
+                <ul className="list-disc pl-5 text-xs text-text-secondary space-y-1">
+                  {cashflowForecast.observations.map((observation) => (
+                    <li key={observation}>{observation}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {cashflowForecast.warnings?.length > 0 && (
+              <div className="space-y-1">
+                {cashflowForecast.warnings.map((warning) => (
+                  <p key={warning} className="text-xs text-status-warning">
+                    {warning}
+                  </p>
+                ))}
+              </div>
+            )}
+          </div>
+        ) : null}
+      </section>
     </div>
   );
 }

@@ -219,10 +219,22 @@ export default function TransactionHistory() {
                         {formatCurrency(tx.amount)}
                       </td>
                       <td className="px-4 py-3 hidden md:table-cell">
-                        <CategoryPill category={tx.category} />
+                        {tx.type === "transfer" ? (
+                          <span className="text-xs text-text-secondary">Transfer</span>
+                        ) : (
+                          <CategoryPill category={tx.category} />
+                        )}
                       </td>
                       <td className="px-4 py-3 text-text-secondary hidden lg:table-cell">
-                        {tx.account}
+                        {tx.type === "transfer" ? (
+                          <span className="inline-flex items-center gap-1 whitespace-nowrap">
+                            {tx.account}
+                            <span aria-hidden="true">→</span>
+                            {tx.to_account || "—"}
+                          </span>
+                        ) : (
+                          tx.account
+                        )}
                       </td>
                       <td className="px-4 py-3 text-text-secondary capitalize hidden sm:table-cell">
                         {tx.type}

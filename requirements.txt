@@ -5,3 +5,4 @@ joblib
 fastapi
 uvicorn[standard]
 sqlalchemy
+pwdlib[argon2]

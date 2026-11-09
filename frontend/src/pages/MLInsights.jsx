@@ -222,11 +222,12 @@ export default function MLInsights() {
                     <span className="font-mono font-medium text-text-primary">
                       {Math.abs(analyzeResult.category_zscore).toFixed(1)}
                     </span>{" "}
-                    standard deviations from the{" "}
+                    Z-score units{" "}
+                    {analyzeResult.category_zscore >= 0 ? "above" : "below"}{" "}
                     <span className="font-mono font-medium text-text-primary">
                       {formatCurrency(analyzeResult.category_average)}
-                    </span>{" "}
-                    average for {analyzeForm.category}.
+                    </span>
+                    {" "}category baseline for {analyzeForm.category}.
                   </p>
                 )}
 

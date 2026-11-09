@@ -13,10 +13,17 @@ category_stats = joblib.load(BASE_DIR / "category_stats.pkl")
 
 PERSONAL_HISTORY_MINIMUM = 10
 PERSONAL_MODIFIED_Z_THRESHOLD = 3.5
+# Calibrated against the reproducible synthetic training distribution's upper tail.
+GLOBAL_HIGH_SPENDING_Z_THRESHOLD = 1.5
 MODIFIED_Z_CONSTANT = 0.6745
 
 
-def analyze_expense(amount, category):
+def analyze_expense(
+    amount,
+    category,
+    *,
+    high_spending_z_threshold=GLOBAL_HIGH_SPENDING_Z_THRESHOLD,
+):
     if category not in category_stats.index:
         return {
             "status": "Unknown",
@@ -36,27 +43,42 @@ def analyze_expense(amount, category):
 
     prediction = model.predict(features)[0]
     score = model.decision_function(features)[0]
+    is_high_spending_anomaly = (
+        prediction == -1 and category_zscore > high_spending_z_threshold
+    )
 
     return {
-        "status": "Anomaly" if prediction == -1 else "Normal",
+        "status": "Anomaly" if is_high_spending_anomaly else "Normal",
         "anomaly_score": float(score),
         "category_average": float(stats["category_mean"]),
         "category_zscore": float(category_zscore)
     }
 
 
-def _global_fallback(amount, category, explanation):
+def _global_fallback(
+    amount,
+    category,
+    explanation,
+    *,
+    high_spending_z_threshold=GLOBAL_HIGH_SPENDING_Z_THRESHOLD,
+):
     """Run the fixed training-data baseline with an explicit explanation."""
-    result = analyze_expense(amount, category)
+    result = analyze_expense(
+        amount,
+        category,
+        high_spending_z_threshold=high_spending_z_threshold,
+    )
     existing_message = result.get("message")
     result["scoring_method"] = "global_isolation_forest"
     result["message"] = " ".join(
         part
         for part in (
             explanation,
-            "scoring_method=global_isolation_forest; anomaly_score is the "
-            "Isolation Forest decision_function score and category_zscore is "
-            "the global training-data Z-score.",
+            "scoring_method=global_isolation_forest; status requires both the "
+            "Isolation Forest anomaly signal and category_zscore above the "
+            f"validated upper-tail threshold of {high_spending_z_threshold:g}. "
+            "anomaly_score is the Isolation Forest decision_function score and "
+            "category_zscore is the global training-data Z-score.",
             existing_message,
         )
         if part
@@ -84,13 +106,15 @@ def analyze_expense_with_history(
     *,
     minimum_history=PERSONAL_HISTORY_MINIMUM,
     modified_z_threshold=PERSONAL_MODIFIED_Z_THRESHOLD,
+    global_high_spending_z_threshold=GLOBAL_HIGH_SPENDING_Z_THRESHOLD,
 ):
     """Analyze an expense against its category's personal history.
 
     The returned ``category_zscore`` is a personalized modified Z-score when
     enough variable history exists. In that path, ``anomaly_score`` is a
-    decision margin: positive means within the threshold and negative means
-    beyond it. The global Isolation Forest score is returned for fallbacks.
+    decision margin: positive means within the upper-tail threshold and
+    negative means beyond it. The global Isolation Forest score is returned
+    for fallbacks.
     """
     try:
         numeric_amount = float(amount)
@@ -123,6 +147,7 @@ def analyze_expense_with_history(
                 f"Global baseline used provisionally: {len(usable_history)} usable "
                 f"personal {category!r} expense(s) found; {minimum_history} required."
             ),
+            high_spending_z_threshold=global_high_spending_z_threshold,
         )
 
     history = np.asarray(usable_history, dtype=float)
@@ -152,12 +177,12 @@ def analyze_expense_with_history(
                 "Global baseline used: personal history has no usable variation "
                 "for a stable personalized scale."
             ),
+            high_spending_z_threshold=global_high_spending_z_threshold,
         )
 
     modified_z = MODIFIED_Z_CONSTANT * (numeric_amount - median) / scale
-    absolute_modified_z = abs(modified_z)
-    decision_margin = modified_z_threshold - absolute_modified_z
-    status = "Anomaly" if absolute_modified_z > modified_z_threshold else "Normal"
+    decision_margin = modified_z_threshold - modified_z
+    status = "Anomaly" if modified_z > modified_z_threshold else "Normal"
 
     return {
         "status": status,
@@ -169,7 +194,8 @@ def analyze_expense_with_history(
             f"Personal baseline used with {scale_method}; "
             "scoring_method=personal_modified_zscore; category_zscore is a "
             "personalized modified Z-score, and anomaly_score is the "
-            "modified-Z threshold margin."
+            "one-sided upper-tail modified-Z threshold margin. Low expenses "
+            "are not classified as high-spending anomalies."
         ),
     }
 

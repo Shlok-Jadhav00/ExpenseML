@@ -1,5 +1,7 @@
 from datetime import date, timedelta
 
+import numpy as np
+import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -10,7 +12,11 @@ from backend.auth import get_current_user, require_csrf
 from backend.database import Base, get_db
 from backend.main import app, get_historical_expense_amounts
 from backend.models import Transaction, User
-from ml.anomaly_model import analyze_expense, analyze_expense_with_history
+from ml.anomaly_model import (
+    GLOBAL_HIGH_SPENDING_Z_THRESHOLD,
+    analyze_expense,
+    analyze_expense_with_history,
+)
 
 
 @pytest.fixture
@@ -52,10 +58,11 @@ def add_transactions(
     transaction_type="expense",
     start_date=date(2026, 1, 1),
     anomaly_status=None,
+    user_id="test-user",
 ):
     rows = [
         Transaction(
-            user_id="test-user",
+            user_id=user_id,
             date=start_date + timedelta(days=index),
             name=f"{category} test",
             amount=amount,
@@ -78,6 +85,97 @@ def test_global_fallback_remains_functional():
     assert "anomaly_score" in result
 
 
+def test_low_global_outlier_is_not_a_high_spending_anomaly():
+    result = analyze_expense(50, "Food")
+
+    assert result["status"] == "Normal"
+    assert result["anomaly_score"] == pytest.approx(-0.0607425911)
+    assert result["category_zscore"] < 0
+
+
+def test_global_upper_tail_threshold_is_validated_across_categories():
+    np.random.seed(42)
+    categories = [
+        "Food",
+        "Transport",
+        "Shopping",
+        "Entertainment",
+        "Education",
+        "Healthcare",
+        "Bills",
+    ]
+    category_names = {
+        "Food": ["Canteen", "Swiggy", "Zomato", "Restaurant"],
+        "Transport": ["Bus", "Uber", "Ola", "Metro"],
+        "Shopping": ["Amazon", "Myntra", "Local Store"],
+        "Entertainment": ["Netflix", "PVR", "Gaming"],
+        "Education": ["Udemy", "Books", "College"],
+        "Healthcare": ["Pharmacy", "Clinic"],
+        "Bills": ["Electricity", "Internet", "Mobile"],
+    }
+    category_amounts = {
+        "Food": (80, 500),
+        "Transport": (30, 300),
+        "Shopping": (200, 2000),
+        "Entertainment": (100, 1000),
+        "Education": (100, 1500),
+        "Healthcare": (100, 1200),
+        "Bills": (200, 1500),
+    }
+
+    rows = []
+    for transaction_date in pd.date_range("2026-07-01", "2026-09-30", periods=1000):
+        category = np.random.choice(categories)
+        low, high = category_amounts[category]
+        rows.append(
+            {
+                "date": transaction_date,
+                "name": np.random.choice(category_names[category]),
+                "amount": np.random.randint(low, high + 1),
+                "category": category,
+            }
+        )
+        np.random.choice(["Savings", "Cash", "Credit"], p=[0.6, 0.25, 0.15])
+
+    normal_df = pd.DataFrame(rows)
+    normal_holdout = normal_df.sample(100, random_state=10).copy()
+    normal_holdout["ground_truth"] = 0
+    anomaly_holdout = normal_df.sample(20, random_state=42).copy()
+    anomaly_holdout["amount"] *= 5
+    anomaly_holdout["ground_truth"] = 1
+    holdout = pd.concat([normal_holdout, anomaly_holdout], ignore_index=True)
+
+    assert GLOBAL_HIGH_SPENDING_Z_THRESHOLD == pytest.approx(1.5)
+
+    results = [
+        analyze_expense(row.amount, row.category)
+        for row in holdout.itertuples()
+    ]
+    predicted = np.array([result["status"] == "Anomaly" for result in results])
+    actual = holdout["ground_truth"].to_numpy(dtype=bool)
+    false_positive_count = int((predicted & ~actual).sum())
+    true_positive_count = int((predicted & actual).sum())
+
+    assert false_positive_count == 0
+    assert true_positive_count / actual.sum() >= 0.85
+
+    for category, category_rows in holdout.groupby("category"):
+        category_results = [
+            analyze_expense(row.amount, category)
+            for row in category_rows.itertuples()
+        ]
+        category_predicted = np.array(
+            [result["status"] == "Anomaly" for result in category_results]
+        )
+        category_actual = category_rows["ground_truth"].to_numpy(dtype=bool)
+        assert not (category_predicted & ~category_actual).any(), category
+        if category_actual.any():
+            assert (
+                (category_predicted & category_actual).sum() / category_actual.sum()
+                >= 0.75
+            ), category
+
+
 def test_insufficient_history_uses_global_provisional_fallback():
     result = analyze_expense_with_history(700, "Food", [100, 150, 200])
 
@@ -85,6 +183,38 @@ def test_insufficient_history_uses_global_provisional_fallback():
     assert result["scoring_method"] == "global_isolation_forest"
     assert "decision_function score" in result["message"]
     assert result["category_average"] == pytest.approx(303.10791366906477)
+
+
+def test_low_expense_stays_normal_before_and_after_personal_history_threshold():
+    history = [100 + index * 10 for index in range(10)]
+
+    insufficient = analyze_expense_with_history(50, "Food", history[:9])
+    exact_threshold = analyze_expense_with_history(50, "Food", history)
+    extended = analyze_expense_with_history(50, "Food", history + [200] * 20)
+
+    assert insufficient["status"] == "Normal"
+    assert exact_threshold["status"] == "Normal"
+    assert extended["status"] == "Normal"
+    assert exact_threshold["scoring_method"] == "personal_modified_zscore"
+    assert extended["scoring_method"] == "personal_modified_zscore"
+
+
+def test_personal_rule_only_flags_upper_tail_expenses():
+    history = [100 + index * 10 for index in range(10)]
+
+    far_below = analyze_expense_with_history(1, "Food", history)
+    ordinary = analyze_expense_with_history(145, "Food", history)
+    unusually_high = analyze_expense_with_history(700, "Food", history)
+
+    assert far_below["category_zscore"] < -3.5
+    assert far_below["status"] == "Normal"
+    assert ordinary["category_zscore"] == pytest.approx(0)
+    assert ordinary["status"] == "Normal"
+    assert unusually_high["category_zscore"] > 3.5
+    assert unusually_high["status"] == "Anomaly"
+    assert far_below["anomaly_score"] > 0
+    assert unusually_high["anomaly_score"] < 0
+    assert "upper-tail" in far_below["message"]
 
 
 def test_personal_baselines_distinguish_low_and_high_spenders():
@@ -153,6 +283,25 @@ def test_history_query_excludes_income_transfers_and_keeps_flagged_expenses(isol
     assert amounts == [100.0, 120.0]
 
 
+def test_personal_history_is_isolated_by_user(isolated_client):
+    client, session_factory = isolated_client
+    db = session_factory()
+    try:
+        add_transactions(
+            db,
+            [500, 540, 580, 620, 660, 700, 740, 760, 780, 800],
+            user_id="other-user",
+        )
+    finally:
+        db.close()
+
+    response = client.post("/analyze", json={"amount": 700, "category": "Food"})
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "Anomaly"
+    assert response.json()["scoring_method"] == "global_isolation_forest"
+
+
 def test_transaction_is_classified_before_insertion(isolated_client):
     client, session_factory = isolated_client
     db = session_factory()
@@ -218,6 +367,46 @@ def test_analyze_uses_history_without_mutating_database(isolated_client):
         assert db.query(Transaction).count() == before_count
     finally:
         db.close()
+
+
+def test_analyze_and_transaction_use_identical_anomaly_logic(isolated_client):
+    client, session_factory = isolated_client
+    db = session_factory()
+    try:
+        add_transactions(
+            db,
+            [100, 120, 140, 160, 180, 200, 220, 240, 260, 280],
+        )
+    finally:
+        db.close()
+
+    analyze_response = client.post(
+        "/analyze",
+        json={"amount": 700, "category": "Food"},
+    )
+    transaction_response = client.post(
+        "/transactions",
+        json={
+            "date": "2026-03-01",
+            "name": "Equivalent Food Expense",
+            "amount": 700,
+            "category": "Food",
+            "account": "Savings",
+            "type": "expense",
+        },
+    )
+
+    assert analyze_response.status_code == 200
+    assert transaction_response.status_code == 201
+    assert transaction_response.json()["anomaly_status"] == analyze_response.json()["status"]
+    assert (
+        transaction_response.json()["anomaly_score"]
+        == pytest.approx(analyze_response.json()["anomaly_score"])
+    )
+    assert (
+        transaction_response.json()["scoring_method"]
+        == analyze_response.json()["scoring_method"]
+    )
 
 
 def test_income_and_transfer_keep_not_applicable(isolated_client):

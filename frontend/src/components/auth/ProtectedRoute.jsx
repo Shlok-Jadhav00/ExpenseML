@@ -7,7 +7,7 @@ import LoadingSpinner from "../ui/LoadingSpinner";
  * Shows a loading spinner while the initial session check is in progress.
  */
 export default function ProtectedRoute({ children }) {
-  const { isAuthenticated, loading } = useAuth();
+  const { isAuthenticated, loading, user } = useAuth();
 
   if (loading) {
     return (
@@ -19,6 +19,10 @@ export default function ProtectedRoute({ children }) {
 
   if (!isAuthenticated) {
     return <Navigate to="/login" replace />;
+  }
+
+  if (!user.privacy_notice_version) {
+    return <Navigate to="/privacy-notice" replace />;
   }
 
   return children;

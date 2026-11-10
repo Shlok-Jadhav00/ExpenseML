@@ -8,6 +8,7 @@ The ML logic lives in ml/anomaly_model.py — this module only wraps it.
 """
 
 from datetime import date, timedelta
+import os
 from uuid import uuid4
 
 import pandas as pd
@@ -41,6 +42,9 @@ from backend.auth import (
     utc_now,
     validate_request_origin,
     verify_password,
+    PRIVACY_NOTICE_VERSION,
+    RESEARCH_CONSENT_VERSION,
+    require_privacy_notice,
 )
 from backend.models import User, UserSession
 from backend.schemas import (
@@ -50,6 +54,7 @@ from backend.schemas import (
     LoginRequest,
     ReauthenticateRequest,
     RegisterRequest,
+    PrivacyNoticeRequest,
 )
 from ml.anomaly_model import analyze_expense_with_history
 from ml.forecasting_model import predict_next_day_expense
@@ -108,18 +113,44 @@ def get_historical_expense_amounts(
 # Application
 # ---------------------------------------------------------------------------
 
+def _configured_origins() -> list[str]:
+    origins = [
+        origin.strip()
+        for origin in os.getenv(
+            "CORS_ORIGINS",
+            "http://localhost:5173,http://127.0.0.1:5173",
+        ).split(",")
+        if origin.strip()
+    ]
+    if "*" in origins:
+        raise RuntimeError("CORS_ORIGINS cannot contain '*' when credentials are enabled")
+    if os.getenv("APP_ENV", "development").lower() == "production" and not origins:
+        raise RuntimeError("CORS_ORIGINS is required when APP_ENV=production")
+    return origins
+
+
+def _beta_allowed_emails() -> set[str]:
+    return {
+        email.strip().lower()
+        for email in os.getenv("BETA_ALLOWED_EMAILS", "").split(",")
+        if email.strip()
+    }
+
+
+def _beta_registration_allowed(email: str) -> bool:
+    if os.getenv("BETA_MODE", "false").lower() != "true":
+        return True
+    return email in _beta_allowed_emails()
+
 app = FastAPI(
     title="Expense Intelligence API",
     description="Analyzes spending behavior and detects anomalous transactions.",
-    version="0.2.0",
+    version="0.3.0",
 )
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-    ],
+    allow_origins=_configured_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -127,7 +158,14 @@ app.add_middleware(
 
 
 def _auth_response(user: User) -> dict:
-    return {"user": {"id": user.id, "email": user.email}}
+    return {
+        "user": {
+            "id": user.id,
+            "email": user.email,
+            "privacy_notice_version": user.privacy_notice_version,
+            "research_consent": bool(user.research_consent),
+        }
+    }
 
 
 @app.post("/auth/register", response_model=AuthResponse, status_code=201)
@@ -140,10 +178,26 @@ def register(
     validate_request_origin(request)
     enforce_rate_limit(request, "register")
     email = payload.email.strip().lower()
+    if not _beta_registration_allowed(email):
+        raise HTTPException(status_code=403, detail="Registration is limited to invited beta participants")
+    if payload.privacy_notice_version != PRIVACY_NOTICE_VERSION or not payload.privacy_notice_accepted:
+        raise HTTPException(status_code=422, detail="Privacy notice acknowledgment is required")
+    if payload.research_consent and payload.research_consent_version != RESEARCH_CONSENT_VERSION:
+        raise HTTPException(status_code=422, detail="Research consent version is invalid")
     if db.query(User).filter(User.email == email).first() is not None:
         raise HTTPException(status_code=400, detail="Unable to register with those details")
 
-    user = User(id=str(uuid4()), email=email, password_hash=hash_password(payload.password))
+    now = utc_now()
+    user = User(
+        id=str(uuid4()),
+        email=email,
+        password_hash=hash_password(payload.password),
+        privacy_notice_version=payload.privacy_notice_version,
+        privacy_notice_accepted_at=now,
+        research_consent=payload.research_consent,
+        research_consent_version=payload.research_consent_version if payload.research_consent else None,
+        research_consent_at=now if payload.research_consent else None,
+    )
     db.add(user)
     db.flush()
     _, raw_token = create_session(db, user)
@@ -182,6 +236,40 @@ def csrf_token(
     session: UserSession = Depends(get_current_session),
 ) -> dict:
     return {"token": session_csrf_token(session, db)}
+
+
+@app.post("/auth/privacy-notice", response_model=AuthResponse)
+def accept_privacy_notice(
+    payload: PrivacyNoticeRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+    _: None = Depends(require_csrf),
+) -> dict:
+    if payload.privacy_notice_version != PRIVACY_NOTICE_VERSION or not payload.privacy_notice_accepted:
+        raise HTTPException(status_code=422, detail="Privacy notice version is invalid")
+    if payload.research_consent and payload.research_consent_version != RESEARCH_CONSENT_VERSION:
+        raise HTTPException(status_code=422, detail="Research consent version is invalid")
+    now = utc_now()
+    user.privacy_notice_version = payload.privacy_notice_version
+    user.privacy_notice_accepted_at = now
+    user.research_consent = payload.research_consent
+    user.research_consent_version = payload.research_consent_version if payload.research_consent else None
+    user.research_consent_at = now if payload.research_consent else None
+    db.commit()
+    return _auth_response(user)
+
+
+@app.post("/auth/research-consent/withdraw", response_model=AuthResponse)
+def withdraw_research_consent(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+    _: None = Depends(require_csrf),
+) -> dict:
+    user.research_consent = False
+    user.research_consent_version = None
+    user.research_consent_at = None
+    db.commit()
+    return _auth_response(user)
 
 
 @app.post("/auth/logout", status_code=204)
@@ -244,7 +332,7 @@ def forecast(
         alias="date",
         description="Target date to predict; defaults to tomorrow",
     ),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_privacy_notice),
     db: Session = Depends(get_db),
 ) -> dict:
     """Return an experimental next-day spending forecast from stored expenses."""
@@ -281,17 +369,17 @@ def cashflow_forecast(
         alias="date",
         description="Forecast cutoff date; defaults to the latest recorded date",
     ),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_privacy_notice),
     db: Session = Depends(get_db),
 ) -> dict:
     """Return the isolated Model 3 seven-day expense forecast."""
     try:
         return predict_cashflow(db, user_id=user.id, forecast_date=forecast_date)
-    except Exception as exc:
+    except Exception:
         raise HTTPException(
             status_code=500,
-            detail=f"Cash-flow forecast failed: {exc}",
-        ) from exc
+            detail="Cash-flow forecast failed",
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -301,7 +389,7 @@ def cashflow_forecast(
 @app.post("/analyze", response_model=AnalysisResponse)
 def analyze(
     expense: ExpenseRequest,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_privacy_notice),
     _: None = Depends(require_csrf),
     db: Session = Depends(get_db),
 ) -> AnalysisResponse:
@@ -339,7 +427,7 @@ def analyze(
 @app.post("/transactions", response_model=TransactionResponse, status_code=201)
 def create_transaction(
     payload: TransactionCreate,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_privacy_notice),
     _: None = Depends(require_csrf),
     db: Session = Depends(get_db),
 ) -> TransactionResponse:
@@ -404,7 +492,7 @@ def list_transactions(
     account: str | None = Query(None, description="Filter by account"),
     limit: int = Query(50, ge=1, le=500, description="Max results to return"),
     offset: int = Query(0, ge=0, description="Number of results to skip"),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_privacy_notice),
     db: Session = Depends(get_db),
 ) -> dict:
     """List transactions with optional filters and pagination."""
@@ -431,7 +519,7 @@ def list_transactions(
 @app.get("/transactions/{transaction_id}", response_model=TransactionResponse)
 def get_transaction(
     transaction_id: int,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_privacy_notice),
     db: Session = Depends(get_db),
 ) -> Transaction:
     """Retrieve a single transaction by its ID."""
@@ -448,7 +536,7 @@ def get_transaction(
 @app.delete("/transactions/{transaction_id}", status_code=204)
 def delete_transaction(
     transaction_id: int,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_privacy_notice),
     _: None = Depends(require_csrf),
     db: Session = Depends(get_db),
 ) -> None:

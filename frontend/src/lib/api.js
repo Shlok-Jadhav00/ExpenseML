@@ -76,12 +76,31 @@ async function mutationRequest(path, options = {}) {
 /* ── Auth ── */
 
 export async function authRegister(email, password) {
+  return authRegisterWithPrivacy(email, password, {
+    privacy_notice_version: "2026-11-beta-1",
+    privacy_notice_accepted: true,
+    research_consent: false,
+  });
+}
+
+export async function authRegisterWithPrivacy(email, password, privacy) {
   const data = await request("/auth/register", {
     method: "POST",
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify({ email, password, ...privacy }),
   });
   _csrfToken = null; // Force refresh after new session
   return data;
+}
+
+export async function acceptPrivacyNotice(privacy) {
+  return mutationRequest("/auth/privacy-notice", {
+    method: "POST",
+    body: JSON.stringify(privacy),
+  });
+}
+
+export async function withdrawResearchConsent() {
+  return mutationRequest("/auth/research-consent/withdraw", { method: "POST" });
 }
 
 export async function authLogin(email, password) {

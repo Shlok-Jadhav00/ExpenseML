@@ -6,7 +6,13 @@ import { useAuth } from "../lib/AuthContext";
 export default function Register() {
   const navigate = useNavigate();
   const { register } = useAuth();
-  const [form, setForm] = useState({ email: "", password: "", confirm: "" });
+  const [form, setForm] = useState({
+    email: "",
+    password: "",
+    confirm: "",
+    notice: false,
+    research: false,
+  });
   const [error, setError] = useState(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -15,6 +21,7 @@ export default function Register() {
     if (form.password.length < 12)
       return "Password must be at least 12 characters";
     if (form.password !== form.confirm) return "Passwords do not match";
+    if (!form.notice) return "You must acknowledge the beta privacy notice";
     return null;
   }
 
@@ -28,7 +35,12 @@ export default function Register() {
     setError(null);
     setSubmitting(true);
     try {
-      await register(form.email, form.password);
+      await register(form.email, form.password, {
+        privacy_notice_version: "2026-11-beta-1",
+        privacy_notice_accepted: true,
+        research_consent: form.research,
+        research_consent_version: form.research ? "2026-11-beta-1" : null,
+      });
       navigate("/", { replace: true });
     } catch (err) {
       setError(err.message);
@@ -87,6 +99,33 @@ export default function Register() {
                 className={inputBase}
                 required
               />
+            </div>
+            <div className="space-y-3 text-xs text-text-secondary leading-relaxed">
+              <label className="flex items-start gap-2">
+                <input
+                  type="checkbox"
+                  checked={form.notice}
+                  onChange={(e) => setForm((p) => ({ ...p, notice: e.target.checked }))}
+                  className="mt-1"
+                />
+                <span>
+                  I acknowledge that ExpenseML is an experimental beta. I enter transactions manually;
+                  records are stored in a hosted database; predictions can be incorrect and are not
+                  financial advice; and I can request deletion from Account.
+                </span>
+              </label>
+              <label className="flex items-start gap-2">
+                <input
+                  type="checkbox"
+                  checked={form.research}
+                  onChange={(e) => setForm((p) => ({ ...p, research: e.target.checked }))}
+                  className="mt-1"
+                />
+                <span>
+                  Optional: I consent to my data being used for controlled aggregate ML evaluation
+                  and research. This is not required to use ExpenseML and can be withdrawn later.
+                </span>
+              </label>
             </div>
             <div>
               <label

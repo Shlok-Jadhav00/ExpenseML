@@ -33,7 +33,12 @@ def make_client():
 def register(client, email, password):
     response = client.post(
         "/auth/register",
-        json={"email": email, "password": password},
+        json={
+            "email": email,
+            "password": password,
+            "privacy_notice_version": "2026-11-beta-1",
+            "privacy_notice_accepted": True,
+        },
     )
     assert response.status_code == 201, response.text
     csrf = client.get("/auth/csrf")

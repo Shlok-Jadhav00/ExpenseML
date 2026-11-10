@@ -17,6 +17,9 @@ from sqlalchemy.orm import Session
 from backend.database import get_db
 from backend.models import User, UserSession
 
+PRIVACY_NOTICE_VERSION = "2026-11-beta-1"
+RESEARCH_CONSENT_VERSION = "2026-11-beta-1"
+
 SESSION_MAX_AGE_SECONDS = int(os.getenv("SESSION_MAX_AGE_SECONDS", "604800"))
 SESSION_IDLE_TIMEOUT_SECONDS = int(os.getenv("SESSION_IDLE_TIMEOUT_SECONDS", "86400"))
 IS_PRODUCTION = os.getenv("APP_ENV", "development").lower() == "production"
@@ -31,6 +34,8 @@ _ALLOWED_ORIGINS = {
     ).split(",")
     if origin.strip()
 }
+if "*" in _ALLOWED_ORIGINS:
+    raise RuntimeError("CORS_ORIGINS cannot contain '*' when credentials are enabled")
 _PASSWORD_HASHER = PasswordHash.recommended()
 _RATE_LIMIT_LOCK = threading.Lock()
 _RATE_LIMIT_EVENTS: dict[tuple[str, str], list[datetime]] = {}
@@ -160,3 +165,12 @@ def same_site_origin(request: Request) -> bool:
         return True
     parsed = urlparse(origin)
     return bool(parsed.scheme and parsed.netloc and origin in _ALLOWED_ORIGINS)
+
+
+def require_privacy_notice(user: User = Depends(get_current_user)) -> User:
+    if user.privacy_notice_version != PRIVACY_NOTICE_VERSION:
+        raise HTTPException(
+            status_code=428,
+            detail="Privacy notice acknowledgment is required before using ExpenseML",
+        )
+    return user

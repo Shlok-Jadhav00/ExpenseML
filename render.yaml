@@ -1,0 +1,26 @@
+services:
+  - type: web
+    name: expenseml-api
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn backend.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: COOKIE_SECURE
+        value: "true"
+      - key: SESSION_SAMESITE
+        value: lax
+      - key: DATABASE_URL
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false
+      - key: BETA_MODE
+        value: "true"
+      - key: BETA_ALLOWED_EMAILS
+        sync: false
+      - key: SESSION_MAX_AGE_SECONDS
+        value: "604800"
+      - key: SESSION_IDLE_TIMEOUT_SECONDS
+        value: "86400"

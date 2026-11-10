@@ -11,6 +11,7 @@ import MLInsights from "./pages/MLInsights";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
 import Account from "./pages/Account";
+import PrivacyNotice from "./pages/PrivacyNotice";
 
 function AuthenticatedLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -69,6 +70,14 @@ export default function App() {
       />
 
       {/* Protected routes — redirect to login if not authenticated */}
+      <Route
+        path="/privacy-notice"
+        element={
+          <ProtectedRoute>
+            <PrivacyNotice />
+          </ProtectedRoute>
+        }
+      />
       <Route
         path="/*"
         element={

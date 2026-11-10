@@ -1,0 +1,13 @@
+{
+  "rewrites": [
+    { "source": "/auth", "destination": "https://YOUR-RENDER-SERVICE.onrender.com/auth" },
+    { "source": "/auth/:path*", "destination": "https://YOUR-RENDER-SERVICE.onrender.com/auth/:path*" },
+    { "source": "/transactions", "destination": "https://YOUR-RENDER-SERVICE.onrender.com/transactions" },
+    { "source": "/transactions/:path*", "destination": "https://YOUR-RENDER-SERVICE.onrender.com/transactions/:path*" },
+    { "source": "/analyze", "destination": "https://YOUR-RENDER-SERVICE.onrender.com/analyze" },
+    { "source": "/forecast", "destination": "https://YOUR-RENDER-SERVICE.onrender.com/forecast" },
+    { "source": "/cashflow-forecast", "destination": "https://YOUR-RENDER-SERVICE.onrender.com/cashflow-forecast" },
+    { "source": "/health", "destination": "https://YOUR-RENDER-SERVICE.onrender.com/health" },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
+}

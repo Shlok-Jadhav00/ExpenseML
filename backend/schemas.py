@@ -17,6 +17,10 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 class RegisterRequest(BaseModel):
     email: str = Field(..., min_length=3, max_length=320)
     password: str = Field(..., min_length=12, max_length=128)
+    privacy_notice_version: str = Field(..., min_length=1, max_length=32)
+    privacy_notice_accepted: bool = False
+    research_consent: bool = False
+    research_consent_version: str | None = Field(None, max_length=32)
 
 
 class LoginRequest(BaseModel):
@@ -31,6 +35,8 @@ class ReauthenticateRequest(BaseModel):
 class AuthUserResponse(BaseModel):
     id: str
     email: str
+    privacy_notice_version: str | None = None
+    research_consent: bool = False
 
 
 class AuthResponse(BaseModel):
@@ -39,6 +45,13 @@ class AuthResponse(BaseModel):
 
 class CsrfResponse(BaseModel):
     token: str
+
+
+class PrivacyNoticeRequest(BaseModel):
+    privacy_notice_version: str = Field(..., min_length=1, max_length=32)
+    privacy_notice_accepted: bool = False
+    research_consent: bool = False
+    research_consent_version: str | None = Field(None, max_length=32)
 
 class TransactionCreate(BaseModel):
     """Request body for creating a new transaction."""

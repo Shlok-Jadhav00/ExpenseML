@@ -6,12 +6,25 @@ import Toast from "../components/ui/Toast";
 
 export default function Account() {
   const navigate = useNavigate();
-  const { user, deleteAccount } = useAuth();
+  const { user, deleteAccount, withdrawResearch } = useAuth();
   const [showDelete, setShowDelete] = useState(false);
   const [password, setPassword] = useState("");
   const [error, setError] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [toast, setToast] = useState(null);
+  const [withdrawing, setWithdrawing] = useState(false);
+
+  async function handleWithdrawResearch() {
+    setWithdrawing(true);
+    try {
+      await withdrawResearch();
+      setToast({ type: "success", message: "Research consent withdrawn." });
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setWithdrawing(false);
+    }
+  }
 
   async function handleDelete(e) {
     e.preventDefault();
@@ -41,6 +54,20 @@ export default function Account() {
         <div className="flex items-center gap-3 mb-4">
           <UserCircle size={20} className="text-action-primary" />
           <h1 className="text-lg font-semibold text-text-primary">Account</h1>
+        </div>
+
+        <div className="rounded-card bg-surface border border-border-subtle shadow-card p-6">
+          <h2 className="text-base font-semibold text-text-primary mb-2">Research consent</h2>
+          <p className="text-sm text-text-secondary mb-4">
+            {user?.research_consent
+              ? "You have opted in to controlled aggregate ML evaluation. Withdrawal immediately excludes your data from future research use."
+              : "You have not opted in to optional ML research."}
+          </p>
+          {user?.research_consent && (
+            <button onClick={handleWithdrawResearch} disabled={withdrawing} className="px-4 py-2 rounded-control border border-border-subtle text-sm font-medium text-text-primary disabled:opacity-50">
+              {withdrawing ? "Withdrawing…" : "Withdraw research consent"}
+            </button>
+          )}
         </div>
 
         <div className="space-y-3">

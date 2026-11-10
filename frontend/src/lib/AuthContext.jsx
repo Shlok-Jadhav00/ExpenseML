@@ -2,7 +2,9 @@ import { createContext, useContext, useState, useEffect, useCallback } from "rea
 import {
   authMe,
   authLogin,
-  authRegister,
+  authRegisterWithPrivacy,
+  acceptPrivacyNotice,
+  withdrawResearchConsent,
   authLogout,
   authDeleteAccount,
   clearCsrfToken,
@@ -57,10 +59,10 @@ export function AuthProvider({ children }) {
     }
   }, []);
 
-  const register = useCallback(async (email, password) => {
+  const register = useCallback(async (email, password, privacy) => {
     setError(null);
     try {
-      const data = await authRegister(email, password);
+      const data = await authRegisterWithPrivacy(email, password, privacy);
       setUser(data.user);
       /* Pre-fetch CSRF token after registration */
       fetchCsrfToken().catch(() => {});
@@ -69,6 +71,18 @@ export function AuthProvider({ children }) {
       setError(err.message);
       throw err;
     }
+  }, []);
+
+  const acknowledgePrivacyNotice = useCallback(async (privacy) => {
+    const data = await acceptPrivacyNotice(privacy);
+    setUser(data.user);
+    return data;
+  }, []);
+
+  const withdrawResearch = useCallback(async () => {
+    const data = await withdrawResearchConsent();
+    setUser(data.user);
+    return data;
   }, []);
 
   const logout = useCallback(async () => {
@@ -101,6 +115,8 @@ export function AuthProvider({ children }) {
     setError,
     login,
     register,
+    acknowledgePrivacyNotice,
+    withdrawResearch,
     logout,
     deleteAccount,
     handleSessionExpired,

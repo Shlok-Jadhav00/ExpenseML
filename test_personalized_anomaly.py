@@ -40,7 +40,12 @@ def isolated_client():
         finally:
             db.close()
 
-    test_user = User(id="test-user", email="test@example.com", password_hash="unused")
+    test_user = User(
+        id="test-user",
+        email="test@example.com",
+        password_hash="unused",
+        privacy_notice_version="2026-11-beta-1",
+    )
     app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[get_current_user] = lambda: test_user
     app.dependency_overrides[require_csrf] = lambda: None

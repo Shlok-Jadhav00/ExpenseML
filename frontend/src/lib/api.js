@@ -156,13 +156,18 @@ export function clearCsrfToken() {
 
 export async function fetchTransactions({
   category,
+  categories,
   type,
   account,
   limit,
   offset,
 } = {}) {
   const params = new URLSearchParams();
-  if (category) params.set("category", category);
+  if (Array.isArray(categories) && categories.length > 0) {
+    params.set("categories", categories.join(","));
+  } else if (category) {
+    params.set("category", category);
+  }
   if (type) params.set("type", type);
   if (account) params.set("account", account);
   if (limit != null) params.set("limit", String(limit));
@@ -170,6 +175,10 @@ export async function fetchTransactions({
 
   const qs = params.toString();
   return request(`/transactions${qs ? `?${qs}` : ""}`);
+}
+
+export async function fetchCategorySummary() {
+  return request("/transactions/category-summary");
 }
 
 export async function createTransaction(data) {

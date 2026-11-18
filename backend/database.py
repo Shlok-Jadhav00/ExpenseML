@@ -26,6 +26,8 @@ def _database_url() -> str:
     url = configured_url or f"sqlite:///{_DB_PATH}"
     if url.startswith("postgres://"):
         url = "postgresql+psycopg://" + url[len("postgres://"):]
+    elif url.startswith("postgresql+psycopg2://"):
+        url = "postgresql+psycopg://" + url[len("postgresql+psycopg2://"):]
     elif url.startswith("postgresql://"):
         url = "postgresql+psycopg://" + url[len("postgresql://"):]
     if (

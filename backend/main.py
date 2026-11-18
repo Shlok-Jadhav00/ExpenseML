@@ -488,6 +488,7 @@ def create_transaction(
 @app.get("/transactions", response_model=TransactionListResponse)
 def list_transactions(
     category: str | None = Query(None, description="Filter by category"),
+    categories: str | None = Query(None, description="Filter by comma-separated categories"),
     type: str | None = Query(None, description="Filter by type"),
     account: str | None = Query(None, description="Filter by account"),
     limit: int = Query(50, ge=1, le=500, description="Max results to return"),
@@ -498,8 +499,14 @@ def list_transactions(
     """List transactions with optional filters and pagination."""
     query = db.query(Transaction).filter(Transaction.user_id == user.id)
 
-    if category is not None:
-        query = query.filter(Transaction.category == category)
+    cat_list = []
+    if categories:
+        cat_list.extend([c.strip() for c in categories.split(",") if c.strip()])
+    if category:
+        cat_list.extend([c.strip() for c in category.split(",") if c.strip()])
+
+    if cat_list:
+        query = query.filter(Transaction.category.in_(cat_list))
     if type is not None:
         query = query.filter(Transaction.type == type)
     if account is not None:
@@ -514,6 +521,41 @@ def list_transactions(
     )
 
     return {"count": total, "transactions": transactions}
+
+
+@app.get("/transactions/category-summary")
+def get_category_summary(
+    user: User = Depends(require_privacy_notice),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Return aggregated spending totals and transaction counts grouped by category."""
+    rows = (
+        db.query(
+            Transaction.category,
+            func.sum(Transaction.amount).label("total_amount"),
+            func.count(Transaction.id).label("count"),
+        )
+        .filter(Transaction.user_id == user.id, Transaction.type == "expense")
+        .group_by(Transaction.category)
+        .all()
+    )
+    total_expense = sum(float(r.total_amount or 0) for r in rows)
+    categories = [
+        {
+            "name": r.category or "Other",
+            "value": round(float(r.total_amount or 0), 2),
+            "count": int(r.count),
+            "percentage": round((float(r.total_amount or 0) / total_expense * 100), 1)
+            if total_expense > 0
+            else 0.0,
+        }
+        for r in rows
+    ]
+    categories.sort(key=lambda x: x["value"], reverse=True)
+    return {
+        "total_expense": round(total_expense, 2),
+        "categories": categories,
+    }
 
 
 @app.get("/transactions/{transaction_id}", response_model=TransactionResponse)

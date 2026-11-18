@@ -210,7 +210,7 @@ export default function AddTransaction() {
                 >
                   {(form.type === "income" ? INCOME_CATEGORIES : CATEGORIES).map((c) => (
                     <option key={c} value={c}>
-                      {c}
+                      {c === "Transport" ? "Travel / Transport" : c}
                     </option>
                   ))}
                 </select>

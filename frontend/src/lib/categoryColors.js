@@ -12,6 +12,7 @@ const CATEGORY_COLORS = {
   Food: "#10B981",
   Shopping: "#8B5CF6",
   Transport: "#06B6D4",
+  Travel: "#06B6D4",
   Entertainment: "#EC4899",
   Education: "#3B82F6",
   Bills: "#F59E0B",

@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback } from "react";
-import { Trash2 } from "lucide-react";
-import { fetchTransactions, deleteTransaction } from "../lib/api";
+import { useState, useEffect, useCallback, useMemo } from "react";
+import { Trash2, Filter, Layers, PieChart as ChartIcon, X, Check } from "lucide-react";
+import { fetchTransactions, deleteTransaction, fetchCategorySummary } from "../lib/api";
 import { formatCurrency, formatDate } from "../lib/formatters";
 import AnomalyBadge from "../components/ui/AnomalyBadge";
 import CategoryPill from "../components/ui/CategoryPill";
@@ -9,10 +9,20 @@ import EmptyState from "../components/ui/EmptyState";
 import ErrorBanner from "../components/ui/ErrorBanner";
 import ConfirmModal from "../components/ui/ConfirmModal";
 import Toast from "../components/ui/Toast";
+import CategoryBreakdownChart from "../components/charts/CategoryBreakdownChart";
+import { getCategoryColor } from "../lib/categoryColors";
 import { useNavigate } from "react-router-dom";
 
 const PAGE_SIZE = 20;
-const CATEGORIES = ["", "Food", "Shopping", "Transport", "Entertainment", "Education", "Bills", "Other"];
+const ALL_CATEGORIES = [
+  { id: "Food", label: "Food" },
+  { id: "Transport", label: "Travel / Transport" },
+  { id: "Shopping", label: "Shopping" },
+  { id: "Entertainment", label: "Entertainment" },
+  { id: "Education", label: "Education" },
+  { id: "Bills", label: "Bills" },
+  { id: "Other", label: "Other" },
+];
 const TYPES = ["", "expense", "income", "transfer"];
 
 export default function TransactionHistory() {
@@ -23,10 +33,32 @@ export default function TransactionHistory() {
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState(null);
-  const [filterCategory, setFilterCategory] = useState("");
+
+  // Filters
+  const [selectedCategories, setSelectedCategories] = useState([]);
   const [filterType, setFilterType] = useState("");
+  const [showChart, setShowChart] = useState(true);
+
+  // Category summary data
+  const [categorySummary, setCategorySummary] = useState({
+    total_expense: 0,
+    categories: [],
+  });
+
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [toast, setToast] = useState(null);
+
+  // Fetch category summary stats
+  const loadCategorySummary = useCallback(async () => {
+    try {
+      const summary = await fetchCategorySummary();
+      if (summary && Array.isArray(summary.categories)) {
+        setCategorySummary(summary);
+      }
+    } catch {
+      // Fallback: gracefully ignore if server doesn't respond
+    }
+  }, []);
 
   const loadData = useCallback(
     async (reset = false) => {
@@ -41,7 +73,7 @@ export default function TransactionHistory() {
       try {
         const currentOffset = isReset ? 0 : offset;
         const data = await fetchTransactions({
-          category: filterCategory || undefined,
+          categories: selectedCategories.length > 0 ? selectedCategories : undefined,
           type: filterType || undefined,
           limit: PAGE_SIZE,
           offset: currentOffset,
@@ -62,25 +94,62 @@ export default function TransactionHistory() {
         setLoadingMore(false);
       }
     },
-    [offset, filterCategory, filterType]
+    [offset, selectedCategories, filterType]
   );
 
-  /* Load on mount and when filters change */
+  // Initial load
+  useEffect(() => {
+    loadCategorySummary();
+  }, [loadCategorySummary]);
+
+  // Reload table on filter change
   useEffect(() => {
     setOffset(0);
     setTransactions([]);
     loadData(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filterCategory, filterType]);
+  }, [selectedCategories, filterType]);
+
+  // Category toggle handler
+  function toggleCategory(cat) {
+    setSelectedCategories((prev) =>
+      prev.includes(cat) ? prev.filter((c) => c !== cat) : [...prev, cat]
+    );
+  }
+
+  function clearCategorySelection() {
+    setSelectedCategories([]);
+  }
+
+  // Combined statistics for selected categories
+  const combinedStats = useMemo(() => {
+    if (selectedCategories.length === 0) {
+      return null;
+    }
+    const matchingItems = categorySummary.categories.filter((c) =>
+      selectedCategories.includes(c.name)
+    );
+    const combinedAmount = matchingItems.reduce((sum, c) => sum + c.value, 0);
+    const combinedItemCount = matchingItems.reduce((sum, c) => sum + c.count, 0);
+    const combinedPct =
+      categorySummary.total_expense > 0
+        ? ((combinedAmount / categorySummary.total_expense) * 100).toFixed(1)
+        : 0;
+
+    return {
+      amount: combinedAmount,
+      percentage: combinedPct,
+      count: combinedItemCount,
+    };
+  }, [selectedCategories, categorySummary]);
 
   async function handleDelete() {
     if (!deleteTarget) return;
     try {
       await deleteTransaction(deleteTarget.id);
-      setTransactions((prev) =>
-        prev.filter((t) => t.id !== deleteTarget.id)
-      );
+      setTransactions((prev) => prev.filter((t) => t.id !== deleteTarget.id));
       setTotalCount((prev) => prev - 1);
+      loadCategorySummary(); // refresh categories after deletion
       setToast({
         type: "success",
         message: `"${deleteTarget.name}" deleted successfully`,
@@ -94,9 +163,9 @@ export default function TransactionHistory() {
 
   const hasMore = transactions.length < totalCount;
   const selectBase =
-    "px-3 py-2 rounded-control bg-surface-secondary border border-border-subtle text-text-primary text-sm focus:outline-none focus:ring-2 focus:ring-focus-ring";
+    "px-3 py-1.5 rounded-control bg-surface-secondary border border-border-subtle text-text-primary text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-focus-ring";
 
-  if (loading) {
+  if (loading && offset === 0 && transactions.length === 0) {
     return (
       <div className="space-y-4">
         <div className="animate-skeleton h-10 w-64 rounded-control" />
@@ -105,36 +174,41 @@ export default function TransactionHistory() {
     );
   }
 
-  if (error) {
+  if (error && transactions.length === 0) {
     return <ErrorBanner message={error} onRetry={() => loadData(true)} />;
   }
 
   return (
     <div className="space-y-5">
-      {/* Header + Filters */}
+      {/* ── Page Header & Controls ── */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
           <h1 className="text-lg font-semibold text-text-primary">
             Transaction History
           </h1>
           <p className="text-xs text-text-secondary mt-0.5">
-            {totalCount} transaction{totalCount !== 1 ? "s" : ""} total
+            {totalCount} transaction{totalCount !== 1 ? "s" : ""}{" "}
+            {selectedCategories.length > 0 && `(filtered by ${selectedCategories.length} categories)`}
           </p>
         </div>
-        <div className="flex gap-3">
-          <select
-            value={filterCategory}
-            onChange={(e) => setFilterCategory(e.target.value)}
-            className={selectBase}
-            aria-label="Filter by category"
+
+        <div className="flex items-center gap-2.5">
+          {/* Toggle Category Chart */}
+          <button
+            type="button"
+            onClick={() => setShowChart((v) => !v)}
+            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-control text-xs font-medium border border-border-subtle transition-colors ${
+              showChart
+                ? "bg-surface-secondary text-action-primary"
+                : "bg-surface text-text-secondary hover:text-text-primary"
+            }`}
+            aria-label="Toggle Category Chart"
           >
-            <option value="">All Categories</option>
-            {CATEGORIES.filter(Boolean).map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </select>
+            <ChartIcon size={14} />
+            <span>{showChart ? "Hide Chart" : "Show Chart"}</span>
+          </button>
+
+          {/* Type Filter */}
           <select
             value={filterType}
             onChange={(e) => setFilterType(e.target.value)}
@@ -151,27 +225,109 @@ export default function TransactionHistory() {
         </div>
       </div>
 
-      {/* Empty state */}
+      {/* ── Embedded Category-Wise Chart ── */}
+      {showChart && categorySummary.categories.length > 0 && (
+        <CategoryBreakdownChart
+          categoryData={categorySummary.categories}
+          totalExpense={categorySummary.total_expense}
+          selectedCategories={selectedCategories}
+          onToggleCategory={toggleCategory}
+        />
+      )}
+
+      {/* ── Category Multi-Select & Combine Panel ── */}
+      <div className="rounded-card bg-surface border border-border-subtle p-3.5 sm:p-4 shadow-card space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Layers size={15} className="text-action-primary" />
+            <span className="text-xs font-medium text-text-primary">
+              Combine Categories to Check Expense
+            </span>
+          </div>
+          {selectedCategories.length > 0 && (
+            <button
+              type="button"
+              onClick={clearCategorySelection}
+              className="text-xs text-text-secondary hover:text-status-anomaly transition-colors"
+            >
+              Clear filter
+            </button>
+          )}
+        </div>
+
+        {/* Category Chips Multi-Select */}
+        <div className="flex flex-wrap gap-1.5 sm:gap-2">
+          {ALL_CATEGORIES.map((cat) => {
+            const isSelected = selectedCategories.includes(cat.id);
+            const color = getCategoryColor(cat.id);
+            return (
+              <button
+                key={cat.id}
+                type="button"
+                onClick={() => toggleCategory(cat.id)}
+                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-control text-xs font-medium transition-all ${
+                  isSelected
+                    ? "bg-surface-secondary text-text-primary border border-action-primary ring-1 ring-action-primary/30"
+                    : "bg-surface-secondary/50 text-text-secondary border border-border-subtle hover:text-text-primary hover:bg-surface-secondary"
+                }`}
+              >
+                <span
+                  className="w-2 h-2 rounded-full shrink-0"
+                  style={{ backgroundColor: color }}
+                />
+                <span>{cat.label}</span>
+                {isSelected ? (
+                  <Check size={12} className="text-action-primary ml-0.5" />
+                ) : null}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* ── Combined Category Expense Analysis Card ── */}
+        {combinedStats && (
+          <div className="mt-2.5 p-3 rounded-control bg-surface-secondary border border-action-primary/30 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div>
+              <div className="text-[11px] uppercase tracking-wider text-text-secondary font-medium">
+                Combined Expense ({selectedCategories.join(" + ")})
+              </div>
+              <div className="flex items-baseline gap-2 mt-0.5">
+                <span className="text-base sm:text-lg font-mono font-bold text-action-primary">
+                  {formatCurrency(combinedStats.amount)}
+                </span>
+                <span className="text-xs text-text-secondary">
+                  ({combinedStats.percentage}% of all expenses)
+                </span>
+              </div>
+            </div>
+            <div className="text-xs text-text-secondary">
+              <span className="font-mono font-medium text-text-primary">
+                {combinedStats.count}
+              </span>{" "}
+              transaction{combinedStats.count !== 1 ? "s" : ""} in selected categories
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ── Transactions Table ── */}
       {transactions.length === 0 ? (
         <EmptyState
           title="No transactions found"
           message={
-            filterCategory || filterType
-              ? "Try adjusting your filters to see more results."
+            selectedCategories.length > 0 || filterType
+              ? "Try adjusting your category or type filters to see more results."
               : "No transactions have been recorded yet."
           }
           actionLabel={
-            filterCategory || filterType ? undefined : "Add Expense"
+            selectedCategories.length > 0 || filterType ? undefined : "Add Expense"
           }
           onAction={
-            filterCategory || filterType
-              ? undefined
-              : () => navigate("/add")
+            selectedCategories.length > 0 || filterType ? undefined : () => navigate("/add")
           }
         />
       ) : (
         <>
-          {/* Table */}
           <div className="rounded-card bg-surface border border-border-subtle shadow-card overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
@@ -266,7 +422,9 @@ export default function TransactionHistory() {
                 disabled={loadingMore}
                 className="px-6 py-2.5 rounded-control border border-border-subtle text-sm font-medium text-text-secondary hover:text-text-primary hover:bg-surface-secondary disabled:opacity-50 transition-colors"
               >
-                {loadingMore ? "Loading…" : `Load More (${transactions.length} of ${totalCount})`}
+                {loadingMore
+                  ? "Loading…"
+                  : `Load More (${transactions.length} of ${totalCount})`}
               </button>
             </div>
           )}
